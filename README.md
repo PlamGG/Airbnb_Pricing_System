@@ -128,7 +128,7 @@ ollama pull llama3:8b
 ```
 
 5. **Prepare dataset**
-- Download `listings.csv` and `reviews.csv` from [[Kaggle - Airbnb Thailand](https://www.kaggle.com/](https://www.kaggle.com/datasets/zhenhaosng/airbnb-in-thailand/data))
+- Download `listings.csv` and `reviews.csv` from [https://www.kaggle.com/datasets/zhenhaosng/airbnb-in-thailand)
 - Place files in project root directory
 - For testing, use `listings_small.csv` (1,000 rows subset)
 
