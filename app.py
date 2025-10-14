@@ -5,10 +5,9 @@ from collections import Counter
 import json
 from agents import run_crew, load_airbnb_data
 
-# ตั้งค่า Streamlit page
+
 st.set_page_config(page_title="Airbnb Pricing Analysis", layout="wide")
 
-# CSS สำหรับสไตล์ที่สวยงาม
 st.markdown("""
     <style>
     .main { background-color: #f5f5f5; }
@@ -25,10 +24,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ฟังก์ชันวิเคราะห์ amenities ยอดนิยม
+
 def get_top_amenities(df, neighbourhood, room_type, price, rating_threshold=4.5, price_range=0.2):
     """Analyze top amenities for high-rated listings in a price range."""
-    # กรองที่พักที่มีคะแนนดีและอยู่ในช่วงราคา
     price_min = price * (1 - price_range)
     price_max = price * (1 + price_range)
     filtered_df = df[
@@ -41,7 +39,6 @@ def get_top_amenities(df, neighbourhood, room_type, price, rating_threshold=4.5,
     if filtered_df.empty:
         return [], f"No high-rated listings found for {neighbourhood}, {room_type} in price range {price_min:.0f}-{price_max:.0f} THB."
     
-    # รวบรวม amenities
     amenities_counter = Counter()
     for amenities in filtered_df["amenities"].dropna():
         try:
@@ -50,7 +47,6 @@ def get_top_amenities(df, neighbourhood, room_type, price, rating_threshold=4.5,
         except json.JSONDecodeError:
             continue
     
-    # เลือก top 5 amenities
     top_amenities = amenities_counter.most_common(5)
     total_listings = len(filtered_df)
     top_amenities = [(amenity, count, (count / total_listings * 100) if total_listings > 0 else 0) 
@@ -58,18 +54,20 @@ def get_top_amenities(df, neighbourhood, room_type, price, rating_threshold=4.5,
     
     return top_amenities, f"Found {total_listings} high-rated listings in price range {price_min:.0f}-{price_max:.0f} THB."
 
-# โหลดข้อมูล
+
 @st.cache_data
-def load_data(file_path="listings.csv"):  # เปลี่ยนเป็น dataset เต็ม
+def load_data(file_path="listings.csv"):
+    """Load Airbnb listings and reviews data."""
     df, docs, df_reviews = load_airbnb_data(file_path)
     if df is None or df_reviews is None:
-        st.error("❌ Failed to load dataset or reviews!")
+        st.error("Failed to load dataset or reviews!")
         return None, None, None
     return df, docs, df_reviews
 
-# ฟังก์ชันรันทุกย่าน
+
 @st.cache_data
 def run_all_cached(df, df_reviews, room_type, rating):
+    """Run analysis for all neighbourhoods with progress tracking."""
     results = []
     progress_bar = st.progress(0)
     neighbourhoods = df["neighbourhood_cleansed"].unique()
@@ -82,17 +80,15 @@ def run_all_cached(df, df_reviews, room_type, rating):
         progress_bar.progress((i + 1) / len(neighbourhoods))
     return results
 
-# UI หลัก
+
 st.markdown("<div class='header'>Airbnb Pricing Analysis</div>", unsafe_allow_html=True)
 st.markdown("Analyze pricing and popular amenities for Airbnb listings in Thailand using AI-driven market and sentiment analysis.")
 
-# โหลด dataset
 df, docs, df_reviews = load_data()
 if df is not None:
     neighbourhoods = df["neighbourhood_cleansed"].unique().tolist()
     room_types = df["room_type"].unique().tolist()
 
-    # Sidebar สำหรับเลือก input
     st.sidebar.header("Analysis Settings")
     analysis_mode = st.sidebar.radio("Analysis Mode", ["Single Neighbourhood", "All Neighbourhoods"])
     neighbourhood = st.sidebar.selectbox("Select Neighbourhood", neighbourhoods) if analysis_mode == "Single Neighbourhood" else None
@@ -101,7 +97,6 @@ if df is not None:
     num_reviews = st.sidebar.slider("Number of Reviews to Display", 1, 10, 3)
     analyze_button = st.sidebar.button("Analyze")
 
-    # Placeholder สำหรับผลลัพธ์
     result_placeholder = st.empty()
 
     if analyze_button:
@@ -114,7 +109,6 @@ if df is not None:
                     if "error" in result:
                         st.error(result["error"])
                     else:
-                        # แสดงผลลัพธ์ใน metric cards
                         st.markdown(f"<div class='subheader'>Results for {neighbourhood} ({room_type})</div>", unsafe_allow_html=True)
                         col1, col2, col3 = st.columns(3)
                         with col1:
@@ -139,7 +133,6 @@ if df is not None:
                             st.metric(label="Recommended Price", value=f"{result['recommended_price']:.2f} THB")
                             st.markdown("</div>", unsafe_allow_html=True)
 
-                        # วิเคราะห์ amenities ยอดนิยม
                         st.markdown("<div class='subheader'>Popular Amenities in High-Rated Listings</div>", unsafe_allow_html=True)
                         top_amenities, message = get_top_amenities(df, neighbourhood, room_type, result["recommended_price"])
                         if top_amenities:
@@ -153,7 +146,6 @@ if df is not None:
                         else:
                             st.info(message)
 
-                        # กราฟเปรียบเทียบราคา
                         price_data = pd.DataFrame({
                             "Price Type": ["Average Price", "Recommended Price"],
                             "Price (THB)": [result["avg_price"], result["recommended_price"]]
@@ -163,7 +155,6 @@ if df is not None:
                         fig_price.update_traces(hovertemplate="Price Type: %{x}<br>Price: %{y:.2f} THB")
                         st.plotly_chart(fig_price, use_container_width=True)
 
-                        # กราฟเปรียบเทียบ rating และ confidence
                         rating_data = pd.DataFrame({
                             "Metric": ["Average Rating", "Sentiment Confidence"],
                             "Value": [result["avg_rating"], result["confidence"] * 100]
@@ -173,7 +164,6 @@ if df is not None:
                         fig_rating.update_yaxes(title_text="Value (Rating: 0-5, Confidence: %)")
                         st.plotly_chart(fig_rating, use_container_width=True)
 
-                        # แสดงรีวิวตัวอย่างใน expander
                         st.markdown("<div class='subheader'>Sample Reviews Used for Sentiment Analysis</div>", unsafe_allow_html=True)
                         reviews = df_reviews[df_reviews["listing_id"].isin(
                             df[df["neighbourhood_cleansed"] == result["neighbourhood"]]["id"]
@@ -186,24 +176,21 @@ if df is not None:
                             st.info("No reviews available for this neighbourhood. Sentiment based on rating.")
 
             else:
-                # รันทุกย่าน
                 results = run_all_cached(df, df_reviews, room_type, rating)
                 if results:
                     results_df = pd.DataFrame(results)
-                    results_df = results_df.sort_values("recommended_price", ascending=False).head(15)  # จำกัด 15 ย่าน
+                    results_df = results_df.sort_values("recommended_price", ascending=False).head(15)
                     st.markdown("<div class='subheader'>Results for All Neighbourhoods</div>", unsafe_allow_html=True)
                     st.dataframe(results_df[["neighbourhood", "avg_price", "avg_rating", "sentiment", 
                                              "confidence", "amenities_factor", "recommended_price"]].round(2),
                                  use_container_width=True)
 
-                    # กราฟเปรียบเทียบราคาทุกย่าน
                     fig = px.bar(results_df, x="neighbourhood", y=["avg_price", "recommended_price"],
                                  title="Price Comparison Across Top 15 Neighbourhoods",
                                  barmode="group", color_discrete_sequence=["#4CAF50", "#FF5733"])
                     fig.update_traces(hovertemplate="Neighbourhood: %{x}<br>Price: %{y:.2f} THB")
                     st.plotly_chart(fig, use_container_width=True)
 
-                    # ปุ่ม export CSV
                     st.download_button(
                         label="Download Results as CSV",
                         data=results_df.round(2).to_csv(index=False),

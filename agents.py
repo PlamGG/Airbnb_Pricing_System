@@ -10,25 +10,25 @@ from langchain_community.llms import Ollama
 from data_loader import load_airbnb_data
 
 
-# ====== ตั้งค่า environment สำหรับ Ollama ======
 os.environ["OPENAI_API_KEY"] = "ollama"
 os.environ["OPENAI_API_BASE"] = "http://localhost:11434"
+
 
 def initialize_llm():
     """Initialize LLaMA 3 model for CrewAI and LangChain."""
     try:
         crew_llm = LLM(model="ollama/llama3:8b", base_url="http://localhost:11434", temperature=0.0)
         langchain_llm = Ollama(model="llama3:8b", base_url="http://localhost:11434", temperature=0.0)
-        print("✅ Ollama server detected and running!")
-        print("🎯 LLaMA 3 initialized successfully!")
+        print("Ollama server detected and running!")
+        print("LLaMA 3 initialized successfully!")
         return crew_llm, langchain_llm
     except Exception as e:
-        print(f"❌ Error loading Ollama model: {str(e)}")
+        print(f"Error loading Ollama model: {str(e)}")
         return None, None
+
 
 crew_llm, langchain_llm = initialize_llm()
 
-# ====== สร้าง Agents ======
 market_research_agent = Agent(
     role="Market Research Analyst",
     goal="Analyze average prices in a given neighbourhood",
@@ -59,23 +59,21 @@ sentiment_agent = Agent(
     llm=crew_llm
 )
 
-# ====== ฟังก์ชันวิเคราะห์ amenities_factor ======
 amenities_cache = {}
+
 
 def calculate_amenities_factor(df, neighbourhood, room_type):
     """Calculate amenities factor based on listings' amenities."""
     cache_key = f"{neighbourhood}_{room_type}"
     if cache_key in amenities_cache:
-        print(f"DEBUG: Using cached amenities_factor for {cache_key}")
         return amenities_cache[cache_key]
     
-    print(f"DEBUG: Calculating amenities_factor for {cache_key}")
     filtered_df = df[(df["neighbourhood_cleansed"] == neighbourhood) & 
                     (df["room_type"] == room_type)]
     amenities_factor = 1.0
+    
     if "amenities" in filtered_df.columns and not filtered_df.empty:
         amenities_list = filtered_df["amenities"].dropna().tolist()
-        print(f"📊 Amenities found for {neighbourhood}: {amenities_list[:2]}")
         for amenities in amenities_list:
             try:
                 amenities_json = json.loads(amenities) if isinstance(amenities, str) else amenities
@@ -84,12 +82,12 @@ def calculate_amenities_factor(df, neighbourhood, room_type):
                     amenities_factor = 1.1
                     break
             except json.JSONDecodeError:
-                print(f"⚠️ Invalid JSON in amenities: {amenities}")
                 continue
+    
     amenities_cache[cache_key] = amenities_factor
     return amenities_factor
 
-# ====== ฟังก์ชันวิเคราะห์ sentiment จาก reviews ======
+
 def analyze_reviews(df, df_reviews, neighbourhood):
     """Analyze sentiment of reviews for listings in a neighbourhood."""
     listing_ids = df[df["neighbourhood_cleansed"] == neighbourhood]["id"].tolist()
@@ -105,11 +103,12 @@ def analyze_reviews(df, df_reviews, neighbourhood):
         input_variables=["reviews"],
         template="Analyze the sentiment of these Airbnb reviews: {reviews}. Return a JSON object with 'sentiment' ('positive', 'neutral', or 'negative') and 'confidence' (0.0 to 1.0). Example: {{\"sentiment\": \"positive\", \"confidence\": 0.87}}"
     )
+    
     try:
         chain = prompt | langchain_llm
         raw_output = chain.invoke({"reviews": " ".join([str(r) for r in reviews])}).strip()
-        print(f"📝 LLM raw sentiment output: {raw_output}")
         json_match = re.search(r'\{[\s\S]*\}', raw_output)
+        
         if json_match:
             result = json.loads(json_match.group(0))
             sentiment = result.get("sentiment", "neutral").lower()
@@ -120,24 +119,22 @@ def analyze_reviews(df, df_reviews, neighbourhood):
                 confidence = 0.5
             return {"sentiment": sentiment, "confidence": confidence}
         else:
-            print(f"⚠️ No JSON found in LLM output: {raw_output}")
             sentiment = "positive" if avg_rating >= 4 else "neutral" if not pd.isna(avg_rating) else "unknown"
             confidence = 0.8 if avg_rating >= 4 else 0.5
             return {"sentiment": sentiment, "confidence": confidence}
     except Exception as e:
-        print(f"❌ LLM error in review analysis: {str(e)}")
+        print(f"LLM error in review analysis: {str(e)}")
         sentiment = "positive" if avg_rating >= 4 else "neutral" if not pd.isna(avg_rating) else "unknown"
         confidence = 0.8 if avg_rating >= 4 else 0.5
         return {"sentiment": sentiment, "confidence": confidence}
 
-# ====== สร้าง Tasks ======
+
 def create_tasks(neighbourhood, room_type, rating, df, df_reviews):
     """Create tasks for market analysis, sentiment analysis, and pricing."""
     if df is None or df.empty:
-        print("❌ Dataset is None or empty")
+        print("Dataset is None or empty")
         return None
 
-    print(f"DEBUG: Creating tasks for {neighbourhood}, {room_type}, rating {rating}")
     market_task = Task(
         description=f"Analyze average price for {room_type} in {neighbourhood}. Return a dictionary with 'avg_price' and 'amenities_factor'.",
         agent=market_research_agent,
@@ -179,9 +176,6 @@ def create_tasks(neighbourhood, room_type, rating, df, df_reviews):
                 sentiment_factor := (1.1 if sentiment_output.get("sentiment", "unknown").lower() == "positive" else 1.0),
                 amenities_factor := market_output.get("amenities_factor", 1.0),
                 recommended_price := avg_price * rating_factor * sentiment_factor * amenities_factor,
-                print(f"DEBUG: Pricing Task Inputs - avg_price: {avg_price}, rating_factor: {rating_factor}, "
-                      f"sentiment_factor: {sentiment_factor}, amenities_factor: {amenities_factor}"),
-                print(f"DEBUG: Pricing Task Source - Using market_output_cache: {amenities_factor}"),
                 recommended_price
             )[-1]
         }
@@ -189,13 +183,12 @@ def create_tasks(neighbourhood, room_type, rating, df, df_reviews):
 
     return [market_task, sentiment_task, pricing_task]
 
-# ====== รัน Crew ======
+
 def run_crew(neighbourhood, room_type, rating, df, df_reviews):
     """Run CrewAI to analyze market, sentiment, and calculate recommended price."""
     if crew_llm is None:
         return {"error": "LLM not loaded properly"}
 
-    print(f"DEBUG: Starting run_crew for {neighbourhood}, {room_type}, rating {rating}")
     tasks = create_tasks(neighbourhood, room_type, rating, df, df_reviews)
     if tasks is None:
         return {"error": "Dataset not loaded properly or is empty"}
@@ -208,9 +201,7 @@ def run_crew(neighbourhood, room_type, rating, df, df_reviews):
     )
 
     try:
-        print(f"DEBUG: Starting crew.kickoff()")
         crew.kickoff()
-        print(f"DEBUG: Completed crew.kickoff()")
 
         results = {}
         market_output_cache = None
@@ -222,9 +213,8 @@ def run_crew(neighbourhood, room_type, rating, df, df_reviews):
                 else:
                     task_output = task.callback(None) if task.callback else {}
                 results[task.description] = task_output
-                print(f"Task '{task.description}' output: {task_output}")
             except Exception as e:
-                print(f"⚠️ Task '{task.description}' failed: {str(e)}")
+                print(f"Task '{task.description}' failed: {str(e)}")
                 results[task.description] = task.callback(None) if task.callback else {"error": str(e)}
 
         final_result = {
@@ -238,26 +228,25 @@ def run_crew(neighbourhood, room_type, rating, df, df_reviews):
             "confidence": results[tasks[1].description].get("confidence", 0.5),
             "recommended_price": results[tasks[2].description].get("recommended_price", 1000.0)
         }
-        print(f"DEBUG: Final result - {final_result}")
         return final_result
 
     except Exception as e:
-        print(f"❌ Crew execution failed: {str(e)}")
+        print(f"Crew execution failed: {str(e)}")
         return {"error": f"Crew execution failed: {str(e)}"}
 
-# ====== Main ======
+
 if __name__ == "__main__":
     file_path = "listings_small.csv"
     df, docs, df_reviews = load_airbnb_data(file_path)
+    
     if df is not None:
-        print("Dataset loaded successfully:")
-        print(df.head())
+        print("Dataset loaded successfully")
         print(f"Loaded {len(docs)} documents")
-        print("\nAvailable neighbourhoods:", df['neighbourhood_cleansed'].unique().tolist())
-        print("Available room types:", df['room_type'].unique().tolist())
+        print(f"\nAvailable neighbourhoods: {len(df['neighbourhood_cleansed'].unique())} unique")
+        print(f"Available room types: {df['room_type'].unique().tolist()}")
+        
         if df_reviews is not None:
-            print("Reviews dataset loaded successfully:")
-            print(df_reviews.head())
+            print(f"Reviews dataset loaded: {len(df_reviews)} reviews")
 
         test_neighbourhood = "Ratchathewi"
         test_room_type = "Entire home/apt"
